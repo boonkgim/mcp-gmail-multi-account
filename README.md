@@ -51,6 +51,10 @@ the refresh tokens it needs to call the Gmail API on your behalf.
 
 ## Tools
 
+Schema and tool names mirror Anthropic's official single-account Gmail
+connector (so knowledge/prompts transfer directly), with an `account`
+parameter layered on top of every tool below except account management.
+
 Account management:
 
 - `list_gmail_accounts` — list connected accounts
@@ -60,35 +64,50 @@ Account management:
 
 Reading:
 
-- `search_messages` — search with Gmail's query syntax (or list recent inbox mail)
-- `get_message` / `get_thread` — full content of a message or thread
+- `search_threads` — search with Gmail's query syntax (or list recent inbox threads), with pagination
+- `get_message` / `get_thread` — a message or thread, at a chosen `messageFormat` (MINIMAL/FULL_CONTENT/METADATA_ONLY/PLAIN_TEXT)
 - `list_labels` — list system + user labels
 
 Sending — **disabled by default**, see [Sending is off by default](#sending-is-off-by-default) below:
 
-- `send_message` — compose and send
-- `reply_to_message` — reply in-thread (optionally reply-all)
+- `send_message` — compose and send a new message, or send an existing draft via `draftId`
+- `reply` — reply in-thread (optionally reply-all)
+- `forward` — forward a message, carrying over its attachments
 
 Drafts — always available, regardless of the sending toggle:
 
-- `create_draft` / `list_drafts` / `send_draft`
+- `create_draft` — supports `replyToMessageId` for a properly threaded reply draft
+- `update_draft` — merge-semantics update (only the fields you pass are changed)
+- `list_drafts`
 
-Organizing:
+Labels:
 
-- `modify_labels` — generic add/remove labels (star, mark read/unread, etc.)
-- `archive_message` / `trash_message`
+- `create_label` / `update_label` / `delete_label` — nested labels via `"Parent/Child"` names
+- `label_message` / `unlabel_message` — add/remove labels on one message
+- `label_thread` / `unlabel_thread` — add/remove labels on every message in a thread
+
+Archive / trash / spam:
+
+- `archive_message`
+- `trash_message` / `untrash_message`, `trash_thread` / `untrash_thread`
+- `mark_message_spam` / `unmark_message_spam`, `mark_thread_spam` / `unmark_thread_spam`
 
 Every tool other than the account-management ones takes an optional
 `account` parameter — the Gmail address to act on. It's optional only when
 exactly one account is connected; with more than one, omitting it returns an
 error listing the connected accounts to choose from.
 
+Compose tools (`create_draft`, `update_draft`, `send_message`, `reply`,
+`forward`) accept both `body` (plain text) and `htmlBody`, plus `attachments`
+(base64 `content`, optionally `inline` for images referenced via
+`cid:<filename>` in `htmlBody`).
+
 ### Sending is off by default
 
-`send_message`, `reply_to_message`, and `send_draft` — anything that causes
-mail to actually leave the account — are blocked until you (or Claude, on
-your explicit say-so) call `set_send_permission` with `allow: true`. Until
-then, calling any of them returns a message pointing Claude at `create_draft`
+`send_message`, `reply`, and `forward` — anything that causes mail to
+actually leave the account — are blocked until you (or Claude, on your
+explicit say-so) call `set_send_permission` with `allow: true`. Until then,
+calling any of them returns a message pointing Claude at `create_draft`
 instead. This is a per-owner setting stored in KV (not per-deployment), so
 it persists across Claude sessions and covers every connected account; call
 `set_send_permission` with `allow: false` to turn it back off.
@@ -195,12 +214,13 @@ testing).
 - Google access tokens expire in ~1 hour; this server refreshes them on
   demand from the stored refresh token, per connected account, rather than
   syncing to this Worker's own OAuth token lifetime.
-- `search_messages` hydrates each result with a metadata fetch (subject,
-  from, to, date) since Gmail's `messages.list` only returns bare message
-  ids — capped to a max of 100 results per call to bound the fan-out.
-- Attachment downloads aren't implemented — `get_message`/`get_thread`
-  return attachment metadata (filename, type, size, attachment id) but not
-  content.
+- `search_threads` hydrates each result with a metadata fetch (subject,
+  from, to, date, snippet) since Gmail's `threads.list` only returns bare
+  thread ids — each call is capped at 50 results (`pageSize`), with
+  `pageToken` for further pages.
+- `get_message`/`get_thread` return attachment metadata (filename, type,
+  size, attachment id) but not content directly — `forward` downloads and
+  re-attaches a message's existing attachments itself.
 - See [SECURITY.md](SECURITY.md) for the account-linking flow's threat
   model and how to report vulnerabilities.
 
