@@ -37,7 +37,7 @@
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "<run `npx wrangler kv namespace create OAUTH_KV` and paste the id here>",
+      "id": "9bb61f25c5ec44f09bdff91cbf25b79c",
     },
   ],
   /**
@@ -48,7 +48,7 @@
    * redeploy.
    */
   "vars": {
-    "PUBLIC_URL": "https://mcp-gmail-multi-account.<your-subdomain>.workers.dev",
+    "PUBLIC_URL": "https://mcp-gmail-multi-account.boonkgim.workers.dev",
   },
   "observability": {
     "enabled": true,
@@ -78,7 +78,7 @@
       "kv_namespaces": [
         {
           "binding": "OAUTH_KV",
-          "id": "<run `npx wrangler kv namespace create OAUTH_KV` and paste the id here>",
+          "id": "9bb61f25c5ec44f09bdff91cbf25b79c",
         },
       ],
       "vars": {
