@@ -1,0 +1,89 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mcp-gmail-multi-account",
+  /**
+   * Not committed here since it's account-specific — either add your own
+   * (`npx wrangler whoami` to find it) or set the CLOUDFLARE_ACCOUNT_ID env
+   * var instead, which wrangler reads without needing it in this file.
+   *   "account_id": "<your account id>",
+   */
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-10",
+  "compatibility_flags": ["nodejs_compat"],
+  /**
+   * Secrets are not stored here — set them with:
+   *   npx wrangler secret put GOOGLE_CLIENT_ID
+   *   npx wrangler secret put GOOGLE_CLIENT_SECRET
+   *   npx wrangler secret put COOKIE_ENCRYPTION_KEY
+   */
+  "migrations": [
+    {
+      "new_sqlite_classes": ["MyMCP"],
+      "tag": "v1",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "MyMCP",
+        "name": "MCP_OBJECT",
+      },
+    ],
+  },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "<run `npx wrangler kv namespace create OAUTH_KV` and paste the id here>",
+    },
+  ],
+  /**
+   * PUBLIC_URL is this Worker's own public URL, used to build the
+   * "connect another Gmail account" links returned by the
+   * get_gmail_connect_link tool. You only find out the real value after the
+   * first `wrangler deploy` — come back and fill it in afterward, then
+   * redeploy.
+   */
+  "vars": {
+    "PUBLIC_URL": "https://mcp-gmail-multi-account.<your-subdomain>.workers.dev",
+  },
+  "observability": {
+    "enabled": true,
+  },
+  /**
+   * Named so that `wrangler dev --env development` (npm run dev) loads
+   * .env.development instead of .env. kv_namespaces/durable_objects/migrations
+   * aren't inherited from the top level, so they're repeated here — keep the
+   * OAUTH_KV id in sync with the top-level one above.
+   */
+  "env": {
+    "development": {
+      "migrations": [
+        {
+          "new_sqlite_classes": ["MyMCP"],
+          "tag": "v1",
+        },
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "MyMCP",
+            "name": "MCP_OBJECT",
+          },
+        ],
+      },
+      "kv_namespaces": [
+        {
+          "binding": "OAUTH_KV",
+          "id": "<run `npx wrangler kv namespace create OAUTH_KV` and paste the id here>",
+        },
+      ],
+      "vars": {
+        "PUBLIC_URL": "http://localhost:8788",
+      },
+    },
+  },
+}

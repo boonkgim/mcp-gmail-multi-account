@@ -13,13 +13,17 @@ out/
 # Environment / secrets
 .env
 .env.*
-!.env.example
+!.env.development.example
 *.pem
 *.key
 credentials.json
 token.json
 *.token
 secrets/
+
+# Cloudflare Workers
+.wrangler/
+worker-configuration.d.ts
 
 # Logs
 logs/
