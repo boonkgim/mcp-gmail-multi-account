@@ -14,6 +14,13 @@ Each user who connects authorizes their own Google account(s) via OAuth —
 the server proxies that OAuth flow and never sees your Google password, just
 the refresh tokens it needs to call the Gmail API on your behalf.
 
+> **Setting this up with an AI coding agent?** Clone the repo and just ask
+> it (e.g. "help me set up this MCP server") — it can run the `npm`/
+> `wrangler` commands below and edit `wrangler.jsonc` itself. See
+> [AGENTS.md](AGENTS.md) for exactly what it can automate versus what
+> needs you in a browser (the Google Cloud Console steps and the
+> claude.ai connector step).
+
 ## Architecture
 
 - **`@cloudflare/workers-oauth-provider`** — implements the OAuth 2.1 server
@@ -121,13 +128,18 @@ If `npx wrangler whoami` lists more than one Cloudflare account, add
 `CLOUDFLARE_ACCOUNT_ID` env var — otherwise `wrangler` can't tell which
 account to deploy to.
 
-Set secrets (you'll be prompted to paste each value):
+Set secrets (each command prompts for the value on stdin):
 
 ```bash
 npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 npx wrangler secret put COOKIE_ENCRYPTION_KEY   # e.g. output of: openssl rand -hex 32
 ```
+
+Scripting this instead of typing interactively? Pipe the value in:
+`printf '%s' "$VALUE" | npx wrangler secret put NAME` (and
+`openssl rand -hex 32 | npx wrangler secret put COOKIE_ENCRYPTION_KEY` for
+the third one).
 
 ## 3. Deploy
 
