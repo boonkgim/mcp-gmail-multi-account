@@ -281,10 +281,24 @@ function replyHeaderParams(): URLSearchParams {
   return params;
 }
 
-export async function replyToMessage(
+interface ReplyFields {
+  to: string[];
+  cc?: string[];
+  subject: string;
+  inReplyTo?: string;
+  references?: string;
+  threadId: string;
+}
+
+/** Derives the To/Cc/Subject/threading headers a reply to `messageId` needs, Gmail-thread-correct. */
+async function resolveReplyFields(
   accessToken: string,
-  { account, messageId, body, replyAll = false }: ReplyInput,
-): Promise<SentMessage> {
+  {
+    account,
+    messageId,
+    replyAll = false,
+  }: { account: string; messageId: string; replyAll?: boolean },
+): Promise<ReplyFields> {
   const original = await gmailFetch<GmailMessageResource>(
     accessToken,
     `/users/me/messages/${messageId}?${replyHeaderParams()}`,
@@ -313,28 +327,48 @@ export async function replyToMessage(
   const subject = /^re:/i.test(originalSubject) ? originalSubject : `Re: ${originalSubject}`;
   const references = [originalReferences, originalMessageId].filter(Boolean).join(" ");
 
-  const raw = buildRawMimeMessage({
+  return {
     to,
     cc: cc?.length ? cc : undefined,
     subject,
-    body,
     inReplyTo: originalMessageId,
     references: references || undefined,
+    threadId: original.threadId,
+  };
+}
+
+export async function replyToMessage(
+  accessToken: string,
+  { account, messageId, body, replyAll = false }: ReplyInput,
+): Promise<SentMessage> {
+  const fields = await resolveReplyFields(accessToken, { account, messageId, replyAll });
+
+  const raw = buildRawMimeMessage({
+    to: fields.to,
+    cc: fields.cc,
+    subject: fields.subject,
+    body,
+    inReplyTo: fields.inReplyTo,
+    references: fields.references,
   });
 
   return gmailFetch<SentMessage>(accessToken, "/users/me/messages/send", {
     method: "POST",
-    body: JSON.stringify({ raw, threadId: original.threadId }),
+    body: JSON.stringify({ raw, threadId: fields.threadId }),
   });
 }
 
 export interface DraftInput {
-  to: string[];
+  to?: string[];
   cc?: string[];
   bcc?: string[];
-  subject: string;
+  subject?: string;
   body: string;
-  threadId?: string;
+  /** The connected account's own address, excluded from a reply-all Cc. */
+  account?: string;
+  /** When set, the draft is threaded as a reply to this message (matching Gmail's own "Draft reply"). */
+  replyToMessageId?: string;
+  replyAll?: boolean;
 }
 
 export interface DraftSummary {
@@ -343,10 +377,46 @@ export interface DraftSummary {
 }
 
 export async function createDraft(accessToken: string, input: DraftInput): Promise<DraftSummary> {
-  const raw = buildRawMimeMessage(input);
+  let to = input.to;
+  let cc = input.cc;
+  let subject = input.subject;
+  let inReplyTo: string | undefined;
+  let references: string | undefined;
+  let threadId: string | undefined;
+
+  if (input.replyToMessageId) {
+    const fields = await resolveReplyFields(accessToken, {
+      account: input.account ?? "",
+      messageId: input.replyToMessageId,
+      replyAll: input.replyAll,
+    });
+    to = to?.length ? to : fields.to;
+    cc = cc ?? fields.cc;
+    subject = subject ?? fields.subject;
+    inReplyTo = fields.inReplyTo;
+    references = fields.references;
+    threadId = fields.threadId;
+  }
+
+  if (!to?.length) {
+    throw new Error("At least one recipient (to) is required.");
+  }
+  if (!subject) {
+    throw new Error("A subject is required.");
+  }
+
+  const raw = buildRawMimeMessage({
+    to,
+    cc,
+    bcc: input.bcc,
+    subject,
+    body: input.body,
+    inReplyTo,
+    references,
+  });
   return gmailFetch<DraftSummary>(accessToken, "/users/me/drafts", {
     method: "POST",
-    body: JSON.stringify({ message: { raw, threadId: input.threadId } }),
+    body: JSON.stringify({ message: { raw, threadId } }),
   });
 }
 

@@ -310,19 +310,41 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
       "create_draft",
       {
         title: "Create Gmail draft",
-        description: "Save a new draft without sending it.",
+        description:
+          "Save a new draft without sending it. Pass replyToMessageId to save it as an in-thread " +
+          'reply draft (like Gmail\'s own "Draft reply") — to and subject are then derived from ' +
+          "the original message unless overridden, and replyAll also Ccs the original recipients " +
+          "(minus the sending account).",
         inputSchema: {
-          to: z.array(z.string()).min(1),
+          to: z
+            .array(z.string())
+            .min(1)
+            .optional()
+            .describe("Required unless replyToMessageId is set"),
           cc: z.array(z.string()).optional(),
           bcc: z.array(z.string()).optional(),
-          subject: z.string(),
+          subject: z.string().optional().describe("Required unless replyToMessageId is set"),
           body: z.string().describe("Plain-text message body"),
+          replyToMessageId: z
+            .string()
+            .optional()
+            .describe("Message id to thread this draft as a reply to"),
+          replyAll: z.boolean().optional(),
           account: accountParam,
         },
       },
-      async ({ to, cc, bcc, subject, body, account }) => {
-        const { accessToken } = await this.resolve(account);
-        const draft = await createDraft(accessToken, { to, cc, bcc, subject, body });
+      async ({ to, cc, bcc, subject, body, replyToMessageId, replyAll, account }) => {
+        const { accessToken, account: resolved } = await this.resolve(account);
+        const draft = await createDraft(accessToken, {
+          to,
+          cc,
+          bcc,
+          subject,
+          body,
+          replyToMessageId,
+          replyAll,
+          account: resolved.email,
+        });
         return { content: [{ type: "text", text: `Created draft ${draft.id}.` }] };
       },
     );

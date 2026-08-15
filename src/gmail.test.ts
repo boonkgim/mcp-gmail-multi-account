@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createDraft,
   getMessage,
   listLabels,
   modifyMessageLabels,
@@ -183,6 +184,99 @@ describe("replyToMessage", () => {
     await expect(
       replyToMessage("token", { account: "me@example.com", messageId: "m1", body: "x" }),
     ).rejects.toThrow("no From header");
+  });
+});
+
+describe("createDraft", () => {
+  it("creates a standalone draft with no threading headers", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      jsonResponse({ id: "d1", message: { id: "m1", threadId: "t1" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createDraft("token", { to: ["a@example.com"], subject: "Hi", body: "body" });
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/drafts");
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.message.threadId).toBeUndefined();
+    const message = Buffer.from(body.message.raw, "base64url").toString("utf-8");
+    expect(message).not.toContain("In-Reply-To:");
+  });
+
+  it("throws when neither replyToMessageId nor to/subject are given", async () => {
+    await expect(createDraft("token", { body: "body" })).rejects.toThrow(
+      "recipient (to) is required",
+    );
+  });
+
+  it("threads a reply draft off the original message, deriving to/subject/threadId", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (!init?.method) {
+        return jsonResponse({
+          id: "m1",
+          threadId: "t1",
+          payload: {
+            headers: [
+              { name: "From", value: "Sender <sender@example.com>" },
+              { name: "Subject", value: "Original" },
+              { name: "Message-ID", value: "<orig@mail.gmail.com>" },
+            ],
+          },
+        });
+      }
+      return jsonResponse({ id: "d1", message: { id: "m2", threadId: "t1" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createDraft("token", {
+      body: "reply body",
+      replyToMessageId: "m1",
+      account: "me@example.com",
+    });
+
+    const draftCall = fetchMock.mock.calls[1];
+    const body = JSON.parse(String(draftCall[1]?.body));
+    expect(body.message.threadId).toBe("t1");
+    const message = Buffer.from(body.message.raw, "base64url").toString("utf-8");
+    expect(message).toContain("To: sender@example.com");
+    expect(message).toContain("Subject: Re: Original");
+    expect(message).toContain("In-Reply-To: <orig@mail.gmail.com>");
+  });
+
+  it("lets explicit to/subject override the derived reply defaults", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (!init?.method) {
+        return jsonResponse({
+          id: "m1",
+          threadId: "t1",
+          payload: {
+            headers: [
+              { name: "From", value: "sender@example.com" },
+              { name: "Subject", value: "Original" },
+              { name: "Message-ID", value: "<orig@mail.gmail.com>" },
+            ],
+          },
+        });
+      }
+      return jsonResponse({ id: "d1", message: { id: "m2", threadId: "t1" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createDraft("token", {
+      to: ["override@example.com"],
+      subject: "Custom subject",
+      body: "reply body",
+      replyToMessageId: "m1",
+      account: "me@example.com",
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+    const message = Buffer.from(body.message.raw, "base64url").toString("utf-8");
+    expect(message).toContain("To: override@example.com");
+    expect(message).toContain("Subject: Custom subject");
+    // Threading headers still come from the original message even when to/subject are overridden.
+    expect(message).toContain("In-Reply-To: <orig@mail.gmail.com>");
+    expect(body.message.threadId).toBe("t1");
   });
 });
 
