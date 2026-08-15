@@ -11,6 +11,8 @@ import {
   resolveAccount,
   type GmailAccount,
 } from "./accounts";
+import { AttachmentsHandler } from "./attachments-handler";
+import { consumeAttachment, mintUploadKey } from "./attachments";
 import {
   archiveMessage,
   createDraft,
@@ -42,6 +44,7 @@ import {
 } from "./gmail";
 import { getGoogleAccessToken, type Props } from "./google-auth";
 import { GoogleHandler } from "./google-handler";
+import type { MimeAttachment } from "./mime";
 import { isSendAllowed, setSendAllowed } from "./send-permission";
 
 const accountParam = z
@@ -62,17 +65,36 @@ const messageFormatParam = z
       "plain part exists) — prefer this to avoid pulling large HTML bodies into context.",
   );
 
-const attachmentParam = z.object({
-  content: z.string().describe("Base64-encoded attachment content"),
-  filename: z.string().optional(),
-  mimeType: z.string().optional().describe('IANA MIME type, e.g. "application/pdf"'),
-  inline: z
-    .boolean()
-    .optional()
-    .describe(
-      "If true, reference it in htmlBody via cid:<filename> instead of listing it as a download",
-    ),
-});
+const attachmentParam = z
+  .object({
+    content: z
+      .string()
+      .optional()
+      .describe(
+        "Base64-encoded attachment content. For anything but a tiny file, prefer `ref` instead " +
+          "(see get_attachment_upload_key) — this field means retyping the whole file as text.",
+      ),
+    ref: z
+      .string()
+      .optional()
+      .describe(
+        "A ref returned by POST /attachments/upload (see get_attachment_upload_key), used " +
+          "instead of `content` to avoid passing file bytes through this tool call. Single-use.",
+      ),
+    filename: z.string().optional(),
+    mimeType: z.string().optional().describe('IANA MIME type, e.g. "application/pdf"'),
+    inline: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, reference it in htmlBody via cid:<filename> instead of listing it as a download",
+      ),
+  })
+  .refine((a) => Boolean(a.content) !== Boolean(a.ref), {
+    message: "Provide exactly one of `content` or `ref`.",
+  });
+
+type AttachmentInput = z.infer<typeof attachmentParam>;
 
 const colorPresetParam = z
   .enum(LABEL_COLOR_PRESET_NAMES)
@@ -104,6 +126,31 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
   /** Null when sending is allowed; otherwise the message to return instead of sending. */
   private async sendBlockedMessage(): Promise<string | null> {
     return (await isSendAllowed(this.env, this.ownerId)) ? null : MyMCP.SEND_BLOCKED_MESSAGE;
+  }
+
+  /** Resolves `content`/`ref` attachment inputs into plain content, consuming any refs. */
+  private async resolveAttachments(
+    attachments: AttachmentInput[] | undefined,
+  ): Promise<MimeAttachment[] | undefined> {
+    if (!attachments) return undefined;
+    return Promise.all(
+      attachments.map(async ({ content, ref, filename, mimeType, inline }) => {
+        if (!ref) return { content: content!, filename, mimeType, inline };
+        const stored = await consumeAttachment(this.env, this.ownerId, ref);
+        if (!stored) {
+          throw new Error(
+            `Attachment ref "${ref}" is invalid, already used, or expired — upload again via ` +
+              "get_attachment_upload_key.",
+          );
+        }
+        return {
+          content: stored.content,
+          filename: filename ?? stored.filename,
+          mimeType: mimeType ?? stored.mimeType,
+          inline,
+        };
+      }),
+    );
   }
 
   async init() {
@@ -211,6 +258,50 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
               text: allow
                 ? "Sending is now enabled. send_message, reply, and forward will work."
                 : "Sending is now disabled. Use create_draft instead until it's re-enabled.",
+            },
+          ],
+        };
+      },
+    );
+
+    this.server.registerTool(
+      "get_attachment_upload_key",
+      {
+        title: "Get an attachment upload key",
+        description:
+          "Mint a short-lived key (valid 1 hour) for uploading a file to attach to a " +
+          "draft/message without putting its bytes into a tool call — prefer this over the " +
+          "`content` field on attachments for anything but a tiny file. Upload with: curl -sS " +
+          '-F "file=@<path>" -H "Authorization: Bearer <key>" <endpoint>/attachments/upload — ' +
+          "the response's `ref` (valid 15 minutes, single-use) can then be passed as an " +
+          "attachment's `ref` field to create_draft, update_draft, or send_message.",
+        inputSchema: {},
+      },
+      async () => {
+        if (!this.env.PUBLIC_URL) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  "This server's PUBLIC_URL environment variable isn't configured, so the " +
+                  "upload endpoint's address can't be included. Set it in wrangler.jsonc to " +
+                  "this Worker's deployed URL and redeploy.",
+              },
+            ],
+          };
+        }
+        const key = await mintUploadKey(this.env, this.ownerId);
+        const base = this.env.PUBLIC_URL.replace(/\/$/, "");
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Upload key (valid 1 hour): ${key}\n` +
+                `Upload endpoint: ${base}/attachments/upload\n` +
+                `Example: curl -sS -F "file=@/path/to/file.pdf" -H "Authorization: Bearer ${key}" ` +
+                `${base}/attachments/upload`,
             },
           ],
         };
@@ -625,7 +716,7 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
           subject,
           body,
           htmlBody,
-          attachments,
+          attachments: await this.resolveAttachments(attachments),
           replyToMessageId,
           replyAll,
           account: resolved.email,
@@ -664,7 +755,7 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
           subject,
           body,
           htmlBody,
-          attachments,
+          attachments: await this.resolveAttachments(attachments),
         });
         return { content: [{ type: "text", text: `Updated draft ${draft.id}.` }] };
       },
@@ -729,7 +820,7 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
           subject,
           body,
           htmlBody,
-          attachments,
+          attachments: await this.resolveAttachments(attachments),
           draftId,
         });
         return {
@@ -827,6 +918,7 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
 const app = new Hono<{ Bindings: Env }>();
 app.route("/", GoogleHandler);
 app.route("/accounts", AccountsHandler);
+app.route("/attachments", AttachmentsHandler);
 
 export default new OAuthProvider({
   apiHandler: MyMCP.serve("/mcp"),
