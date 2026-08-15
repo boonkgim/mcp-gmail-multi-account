@@ -27,6 +27,7 @@ import {
 } from "./gmail";
 import { getGoogleAccessToken, type Props } from "./google-auth";
 import { GoogleHandler } from "./google-handler";
+import { isSendAllowed, setSendAllowed } from "./send-permission";
 
 const accountParam = z
   .string()
@@ -51,6 +52,16 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
     const account = resolveAccount(accounts, requested);
     const accessToken = await getGoogleAccessToken(this.env, account.refreshToken);
     return { accessToken, account };
+  }
+
+  private static readonly SEND_BLOCKED_MESSAGE =
+    "Sending is currently disabled for this connector (the default). Use create_draft to " +
+    "save it instead, or ask the user whether to enable sending — if they agree, call " +
+    "set_send_permission with allow: true first.";
+
+  /** Null when sending is allowed; otherwise the message to return instead of sending. */
+  private async sendBlockedMessage(): Promise<string | null> {
+    return (await isSendAllowed(this.env, this.ownerId)) ? null : MyMCP.SEND_BLOCKED_MESSAGE;
   }
 
   async init() {
@@ -137,6 +148,33 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
       },
     );
 
+    this.server.registerTool(
+      "set_send_permission",
+      {
+        title: "Allow or disallow sending mail",
+        description:
+          "Turn this connector's ability to actually send mail (send_message, reply_to_message, " +
+          "send_draft) on or off. Off by default, so those tools fall back to explaining that " +
+          "create_draft should be used instead. Only call this with allow: true after the user has " +
+          "explicitly agreed to let the connector send mail on their behalf — don't enable it on " +
+          "your own initiative just because a send was blocked.",
+        inputSchema: { allow: z.boolean() },
+      },
+      async ({ allow }) => {
+        await setSendAllowed(this.env, this.ownerId, allow);
+        return {
+          content: [
+            {
+              type: "text",
+              text: allow
+                ? "Sending is now enabled. send_message, reply_to_message, and send_draft will work."
+                : "Sending is now disabled. Use create_draft instead until it's re-enabled.",
+            },
+          ],
+        };
+      },
+    );
+
     // --- Reading -------------------------------------------------------------
 
     this.server.registerTool(
@@ -207,7 +245,9 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
       "send_message",
       {
         title: "Send Gmail message",
-        description: "Compose and immediately send a new email.",
+        description:
+          "Compose and immediately send a new email. Disabled by default (see " +
+          "set_send_permission) — prefer create_draft unless the user has explicitly enabled sending.",
         inputSchema: {
           to: z.array(z.string()).min(1),
           cc: z.array(z.string()).optional(),
@@ -218,6 +258,8 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
         },
       },
       async ({ to, cc, bcc, subject, body, account }) => {
+        const blocked = await this.sendBlockedMessage();
+        if (blocked) return { content: [{ type: "text", text: blocked }] };
         const { accessToken } = await this.resolve(account);
         const result = await sendMessage(accessToken, { to, cc, bcc, subject, body });
         return {
@@ -235,7 +277,8 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
         description:
           "Reply in-thread to an existing message, preserving subject/threading headers. " +
           "replyAll also Ccs the original recipients (minus the sending account); default is reply " +
-          "to sender only.",
+          "to sender only. Disabled by default (see set_send_permission) — prefer create_draft " +
+          "unless the user has explicitly enabled sending.",
         inputSchema: {
           messageId: z.string(),
           body: z.string().describe("Plain-text reply body"),
@@ -244,6 +287,8 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
         },
       },
       async ({ messageId, body, replyAll, account }) => {
+        const blocked = await this.sendBlockedMessage();
+        if (blocked) return { content: [{ type: "text", text: blocked }] };
         const { accessToken, account: resolved } = await this.resolve(account);
         const result = await replyToMessage(accessToken, {
           account: resolved.email,
@@ -303,10 +348,14 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
       "send_draft",
       {
         title: "Send Gmail draft",
-        description: "Send a previously created draft by its draft id.",
+        description:
+          "Send a previously created draft by its draft id. Disabled by default (see " +
+          "set_send_permission) — the draft stays saved either way.",
         inputSchema: { draftId: z.string(), account: accountParam },
       },
       async ({ draftId, account }) => {
+        const blocked = await this.sendBlockedMessage();
+        if (blocked) return { content: [{ type: "text", text: blocked }] };
         const { accessToken } = await this.resolve(account);
         const result = await sendDraft(accessToken, draftId);
         return {

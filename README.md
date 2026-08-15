@@ -49,6 +49,7 @@ Account management:
 - `list_gmail_accounts` — list connected accounts
 - `get_gmail_connect_link` — get a one-time link to connect another account
 - `disconnect_gmail_account` — remove a connected account
+- `set_send_permission` — allow/disallow the sending tools below (off by default)
 
 Reading:
 
@@ -56,12 +57,12 @@ Reading:
 - `get_message` / `get_thread` — full content of a message or thread
 - `list_labels` — list system + user labels
 
-Sending:
+Sending — **disabled by default**, see [Sending is off by default](#sending-is-off-by-default) below:
 
 - `send_message` — compose and send
 - `reply_to_message` — reply in-thread (optionally reply-all)
 
-Drafts:
+Drafts — always available, regardless of the sending toggle:
 
 - `create_draft` / `list_drafts` / `send_draft`
 
@@ -74,6 +75,16 @@ Every tool other than the account-management ones takes an optional
 `account` parameter — the Gmail address to act on. It's optional only when
 exactly one account is connected; with more than one, omitting it returns an
 error listing the connected accounts to choose from.
+
+### Sending is off by default
+
+`send_message`, `reply_to_message`, and `send_draft` — anything that causes
+mail to actually leave the account — are blocked until you (or Claude, on
+your explicit say-so) call `set_send_permission` with `allow: true`. Until
+then, calling any of them returns a message pointing Claude at `create_draft`
+instead. This is a per-owner setting stored in KV (not per-deployment), so
+it persists across Claude sessions and covers every connected account; call
+`set_send_permission` with `allow: false` to turn it back off.
 
 ## 1. Google Cloud setup
 
