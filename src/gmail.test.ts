@@ -335,6 +335,41 @@ describe("updateDraft", () => {
     });
   }
 
+  function stubExistingWithAttachment() {
+    return vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("/attachments/"))
+        return jsonResponse({ data: Buffer.from("file").toString("base64url") });
+      if (!init?.method) {
+        return jsonResponse({
+          id: "d1",
+          message: {
+            id: "m1",
+            threadId: "t1",
+            payload: {
+              headers: [
+                { name: "To", value: "old@example.com" },
+                { name: "Subject", value: "Old subject" },
+              ],
+              mimeType: "multipart/mixed",
+              parts: [
+                {
+                  mimeType: "text/plain",
+                  body: { data: Buffer.from("old body").toString("base64url") },
+                },
+                {
+                  filename: "file.txt",
+                  mimeType: "text/plain",
+                  body: { attachmentId: "att1", size: 4 },
+                },
+              ],
+            },
+          },
+        });
+      }
+      return jsonResponse({ id: "d1", message: { id: "m1", threadId: "t1" } });
+    });
+  }
+
   it("overwrites only the fields provided, preserving the rest", async () => {
     const fetchMock = stubExisting();
     vi.stubGlobal("fetch", fetchMock);
@@ -361,6 +396,34 @@ describe("updateDraft", () => {
     const message = Buffer.from(body.message.raw, "base64url").toString("utf-8");
     expect(message).toContain("new body");
     expect(message).not.toContain("old body");
+  });
+
+  it("preserves the existing attachment when attachments are omitted", async () => {
+    const fetchMock = stubExistingWithAttachment();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await updateDraft("token", { draftId: "d1", subject: "New subject" });
+
+    const putCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
+    const body = JSON.parse(String(putCall[1]?.body));
+    const message = Buffer.from(body.message.raw, "base64url").toString("utf-8");
+    expect(message).toContain('filename="file.txt"');
+  });
+
+  it("replaces attachments wholesale when new ones are given", async () => {
+    const fetchMock = stubExistingWithAttachment();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await updateDraft("token", {
+      draftId: "d1",
+      attachments: [{ content: Buffer.from("new file").toString("base64"), filename: "new.txt" }],
+    });
+
+    const putCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
+    const body = JSON.parse(String(putCall[1]?.body));
+    const message = Buffer.from(body.message.raw, "base64url").toString("utf-8");
+    expect(message).toContain('filename="new.txt"');
+    expect(message).not.toContain('filename="file.txt"');
   });
 });
 

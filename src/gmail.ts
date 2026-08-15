@@ -667,6 +667,26 @@ export async function updateDraft(
   const body = bodyProvided ? input.body : existingBody;
   const htmlBody = bodyProvided ? input.htmlBody : existingHtml;
 
+  let attachments = input.attachments;
+  if (!attachments?.length) {
+    const existingAttachments = collectAttachments(existing.message.payload).filter(
+      (a) => a.attachmentId,
+    );
+    attachments = await Promise.all(
+      existingAttachments.map(async (att) => {
+        const data = await gmailFetch<{ data: string }>(
+          accessToken,
+          `/users/me/messages/${existing.message.id}/attachments/${att.attachmentId}`,
+        );
+        return {
+          content: base64UrlToBase64(data.data),
+          filename: att.filename,
+          mimeType: att.mimeType,
+        };
+      }),
+    );
+  }
+
   const raw = buildRawMimeMessage({
     to,
     cc: cc.length ? cc : undefined,
@@ -674,7 +694,7 @@ export async function updateDraft(
     subject,
     body,
     htmlBody,
-    attachments: input.attachments,
+    attachments,
   });
 
   return gmailFetch<DraftSummary>(accessToken, `/users/me/drafts/${input.draftId}`, {
