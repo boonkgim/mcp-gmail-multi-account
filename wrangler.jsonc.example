@@ -34,10 +34,14 @@
       },
     ],
   },
+  /**
+   * Created with `npx wrangler kv namespace create OAUTH_KV` — paste the
+   * printed id here and in the matching spot under env.development below.
+   */
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "9bb61f25c5ec44f09bdff91cbf25b79c",
+      "id": "<your-kv-namespace-id>",
     },
   ],
   /**
@@ -48,7 +52,7 @@
    * redeploy.
    */
   "vars": {
-    "PUBLIC_URL": "https://mcp-gmail-multi-account.boonkgim.workers.dev",
+    "PUBLIC_URL": "https://<your-worker-name>.<your-subdomain>.workers.dev",
   },
   "observability": {
     "enabled": true,
@@ -78,7 +82,7 @@
       "kv_namespaces": [
         {
           "binding": "OAUTH_KV",
-          "id": "9bb61f25c5ec44f09bdff91cbf25b79c",
+          "id": "<your-kv-namespace-id>",
         },
       ],
       "vars": {

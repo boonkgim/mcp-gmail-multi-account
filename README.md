@@ -107,16 +107,17 @@ detailed, click-by-click walkthrough.
 
 ```bash
 npm install
+cp wrangler.jsonc.example wrangler.jsonc   # gitignored — this is your own config, not the repo's
 npx wrangler login
 npx wrangler kv namespace create OAUTH_KV
 ```
 
-Copy the `id` printed by the last command into `wrangler.jsonc` under both
+Copy the `id` printed by the last command into your `wrangler.jsonc` under both
 `kv_namespaces[0].id` and `env.development.kv_namespaces[0].id`. This one KV
 namespace stores both OAuth state and the connected-accounts data.
 
 If `npx wrangler whoami` lists more than one Cloudflare account, add
-`"account_id"` to `wrangler.jsonc` (see the comment there) or set the
+`"account_id"` to your `wrangler.jsonc` (see the comment there) or set the
 `CLOUDFLARE_ACCOUNT_ID` env var — otherwise `wrangler` can't tell which
 account to deploy to.
 
@@ -138,9 +139,9 @@ This prints your Worker's URL, e.g. `https://mcp-gmail-multi-account.<your-subdo
 Go back to the Google Cloud Console and make sure the OAuth client's redirect
 URIs are exactly `<that-url>/callback` and `<that-url>/accounts/callback`.
 
-Then edit `wrangler.jsonc`'s top-level `vars.PUBLIC_URL` to that same URL —
-it's used to build the "connect another Gmail account" link — and redeploy
-(`npm run deploy` again).
+Then edit your `wrangler.jsonc`'s top-level `vars.PUBLIC_URL` to that same
+URL — it's used to build the "connect another Gmail account" link — and
+redeploy (`npm run deploy` again).
 
 ## 4. Connect it to claude.ai
 

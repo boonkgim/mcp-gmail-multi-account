@@ -24,6 +24,8 @@ secrets/
 # Cloudflare Workers
 .wrangler/
 worker-configuration.d.ts
+wrangler.jsonc
+!wrangler.jsonc.example
 
 # Logs
 logs/

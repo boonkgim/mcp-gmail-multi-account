@@ -86,12 +86,13 @@ up correctly (it's wired to `--env development` specifically so it loads
 ## 6. Pick a Cloudflare account
 
 ```bash
+cp wrangler.jsonc.example wrangler.jsonc   # gitignored — this is your own config, not the repo's
 npx wrangler login
 npx wrangler whoami
 ```
 
 If the output lists more than one account, add the one you want this Worker
-under to `wrangler.jsonc`:
+under to your `wrangler.jsonc`:
 
 ```jsonc
 "account_id": "<the account id from whoami>",
@@ -107,7 +108,7 @@ non-interactive mode."
 npx wrangler kv namespace create OAUTH_KV
 ```
 
-Paste the printed `id` into **both** places in `wrangler.jsonc` — the
+Paste the printed `id` into **both** places in your `wrangler.jsonc` — the
 top-level `kv_namespaces` block and the identical one under
 `env.development` (Wrangler doesn't let named environments inherit
 `kv_namespaces`/`durable_objects`/`migrations` from the top level, so they're
@@ -145,7 +146,7 @@ authorized redirect URIs using the printed URL: `<that-url>/callback` and
 `<that-url>/accounts/callback` (keep the `localhost:8788` ones too, for
 local dev).
 
-Then edit `wrangler.jsonc`'s top-level `vars.PUBLIC_URL` to that same URL
+Then edit your `wrangler.jsonc`'s top-level `vars.PUBLIC_URL` to that same URL
 (it's used to build the "connect another Gmail account" links the
 `get_gmail_connect_link` tool returns) and redeploy:
 
